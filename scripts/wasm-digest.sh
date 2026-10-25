@@ -97,7 +97,12 @@ echo "wasm-digest: $units unit(s), $cases case(s), $((cases - needs)) compared, 
 if [ -n "$units_out" ]; then
   # mismatches.txt lines are either `<id>\t<case>\t...` or `<id>: <reason>`
   cut -f1 "$out/mismatches.txt" | sed 's/: .*//' | sort -u >"$out/units-mismatched.txt"
-  LC_ALL=C sort "$out/units.txt" | comm -23 - "$out/units-mismatched.txt" >"$units_out"
-  echo "wasm-digest: $(wc -l <"$units_out" | tr -d ' ') libm-insensitive unit(s) -> $units_out"
+  {
+    echo '# Units whose Rust output is bit-identical natively (x86-64 glibc) and on wasm32-wasip1'
+    echo '# (issue #487): the wasm-digest CI job compares their per-case output digests.'
+    echo '# Written by scripts/wasm-digest.sh --units-out; see crates/difftest/README.md.'
+    LC_ALL=C sort "$out/units.txt" | comm -23 - "$out/units-mismatched.txt"
+  } >"$units_out"
+  echo "wasm-digest: $(grep -vc '^#' "$units_out" | tr -d ' ') libm-insensitive unit(s) -> $units_out"
 fi
 [ "$bad" -eq 0 ] && [ "$lost" -eq 0 ]
