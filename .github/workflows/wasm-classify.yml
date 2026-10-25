@@ -1,0 +1,60 @@
+# TEMPORARY: seeds `scripts/wasm-digest-units.txt` for the `wasm-digest` CI gate on the
+# CI platform (Ubuntu x86-64 glibc). Not part of the PR: removed once the list is
+# committed. Runs on any push to a branch of this repository (so a fork can produce the
+# list without the upstream PR workflow approval).
+name: wasm-classify (temporary)
+
+on: push
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  UPSTREAM_REPO: https://github.com/NVIDIA-Omniverse/usd-brep
+  UPSTREAM_COMMIT: c9c5979f04cea8c38213004d4f04df0dcfb40d05
+
+jobs:
+  wasm-classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      SOLIDCORE_CPP_DIR: ${{ github.workspace }}/.cpp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upstream sources, sccache and the C++ reference
+        uses: ./.github/actions/cpp-reference
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> bin"
+          key: wasm-digest
+
+      - run: rustup target add wasm32-wasip1
+
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "50.0.0"
+
+      - name: Measure the libm-insensitive units (all green/partial units)
+        run: |
+          nice -n 10 scripts/wasm-digest.sh --jobs 2 --green \
+            --out "$RUNNER_TEMP/wasm-digest" \
+            --units-out "$RUNNER_TEMP/wasm-digest-units.txt" || true
+          echo "== summary =="
+          tail -n 3 "$RUNNER_TEMP"/wasm-digest/log/*.txt 2>/dev/null || true
+
+      - name: Upload the insensitive unit list
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-digest-list
+          path: |
+            ${{ runner.temp }}/wasm-digest-units.txt
+            ${{ runner.temp }}/wasm-digest/mismatches.txt
+            ${{ runner.temp }}/wasm-digest/units.txt
+          if-no-files-found: warn
+          retention-days: 14

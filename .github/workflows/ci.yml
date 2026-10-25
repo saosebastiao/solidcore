@@ -129,6 +129,37 @@ jobs:
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo check -p solidcore --target wasm32-unknown-unknown
 
+  # Native/wasm32 parity for the units whose Rust output does not depend on the native
+  # libm (issue #487): their per-case output digests must be bit-identical in the native
+  # x86-64 glibc run and on wasm32-wasip1. The unit list is checked in as
+  # `scripts/wasm-digest-units.txt` and regenerated on this platform with
+  # `scripts/wasm-digest.sh --green --units-out scripts/wasm-digest-units.txt` (see
+  # crates/difftest/README.md, "Rust side only / wasm32").
+  wasm-digest:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      SOLIDCORE_CPP_DIR: ${{ github.workspace }}/.cpp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upstream sources, sccache and the C++ reference
+        uses: ./.github/actions/cpp-reference
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> bin"
+          key: wasm-digest
+
+      - run: rustup target add wasm32-wasip1
+
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "50.0.0"
+
+      - name: Listed units are bit-identical on wasm32
+        run: scripts/wasm-digest.sh --jobs 2 --units-file scripts/wasm-digest-units.txt
+
   # Same packaging check the release workflow runs before publishing (no secrets).
   publish-dry-run:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -357,7 +388,8 @@ jobs:
   # The required check ("difftest"). Runs even when a part failed or was skipped, and
   # succeeds only if every part succeeded.
   difftest:
-    needs: [difftest-baseline, difftest-sweep, difftest-perturb, difftest-compare]
+    needs:
+      [difftest-baseline, difftest-sweep, difftest-perturb, difftest-compare, wasm-digest]
     if: always()
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
@@ -365,7 +397,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "difftest-baseline difftest-sweep difftest-perturb difftest-compare: $RESULTS"
+          echo "difftest-baseline difftest-sweep difftest-perturb difftest-compare wasm-digest: $RESULTS"
           for r in $RESULTS; do
             [ "$r" = success ] || { echo "a difftest part did not succeed"; exit 1; }
           done

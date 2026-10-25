@@ -112,8 +112,28 @@ digest lines, so the Rust kernel can be compared between targets. The binary als
 builds for `wasm32-wasip1` with feature `cpp`: the C++ shims are then not linked but
 left as imports, which `scripts/wasm_stub.py` serves with stubs returning
 `SC_ERR_UNLINKED`; a case whose Rust side reaches C++ (fixture exports) is written as
-`needs-cpp`. `scripts/wasm-digest.sh [--jobs N] [selection]` (default `--green`)
-builds both targets, runs native and under `wasmtime`, and lists differing cases.
+`needs-cpp`. `scripts/wasm-digest.sh [--jobs N] [[--units-file] [selection]]` (default
+`--green`) builds both targets, runs native and under `wasmtime`, and lists differing
+cases. With `--units-file FILE` it runs exactly the ids listed (one per line, `#`
+comments and blank lines ignored); `--units-out FILE` writes the units of that run with
+no mismatch, which is how the list is regenerated.
+
+**libm and the wasm parity gate (issue #487).** Rust's `f64::sin` and the C++ `sin` both
+call glibc on Linux x86-64 (the reference platform), but the wasm build calls the
+wasi-libc/musl math and macOS calls Apple's, so native and wasm outputs differ by a few
+ulp exactly where a unit's results depend on libm. CI's `wasm-digest` job therefore
+runs the digest comparison only for the units that do **not** depend on it today,
+listed in `scripts/wasm-digest-units.txt`. The list is platform-specific and must be
+regenerated on the CI platform (glibc x86-64); every listed unit's cases must be
+bit-identical, so a libm-sensitive unit that lands in the list fails the job instead of
+silently comparing.
+
+```sh
+# regenerate the checked-in list on the CI platform (this is a full --green sweep):
+nice -n 10 scripts/wasm-digest.sh --jobs 4 --green --units-out scripts/wasm-digest-units.txt
+# check just the list (what CI runs):
+nice -n 10 scripts/wasm-digest.sh --jobs 2 --units-file scripts/wasm-digest-units.txt
+```
 
 **Profiling without perf/sudo**: `scripts/perf/sampler.py` (ptrace sampler,
 frame-pointer unwinding) and `scripts/perf/analyze.py` (self/inclusive tables):
